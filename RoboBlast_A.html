@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RoboBlast</title>
+    <style>
+        /* Add some basic styling to our game */
+        body {
+            font-family: monospace;
+            background-color: rgb(0, 0, 0);
+        }
+
+        #game-container {
+            width: 640px;
+            height: 480px;
+            border: 1px solid white;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #player {
+            position: absolute;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 0 25px 50px 25px;
+            border-color: transparent transparent red transparent;
+        }
+
+        #player::before {
+            content: "";
+            position: absolute;
+            top: 50px;
+            left: -25px;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 0 10px 20px 10px;
+            border-color: transparent transparent red transparent;
+        }
+
+        #player::after {
+            content: "";
+            position: absolute;
+            top: 50px;
+            right: -25px;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 0 10px 20px 10px;
+            border-color: transparent transparent red transparent;
+        }
+
+        #player span {
+            position: absolute;
+            top: 70px;
+            left: -10px;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 0 10px 20px 10px;
+            border-color: transparent transparent red transparent;
+        }
+
+        .enemy {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background-color: purple;
+        }
+
+        #shot {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: yellow;
+            border-radius: 50%;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background-color: rgb(255, 255, 255);
+            border-radius: 50%;
+        }
+
+        .red-star {
+            background-color: red;
+        }
+
+        #score {
+            color: yellow;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="game-container">
+        <div id="player"><span></span></div>
+        <div id="score">Score: 0</div>
+    </div>
+
+    <script>
+        // Get references to our game elements
+        const gameContainer = document.getElementById('game-container');
+        const playerElement = document.getElementById('player');
+        const scoreElement = document.getElementById('score');
+
+        // Set up some constants
+        const WIDTH = 640;
+        const HEIGHT = 480;
+        const PLAYER_SIZE = 50;
+        const PLAYER_SPEED = 5;
+        const ENEMY_SIZE = 50;
+        const ENEMY_SPEED = 2.5;
+        const SHOT_SIZE = 10;
+        const SHOT_SPEED = 5;
+
+        // Set up the player
+        let playerX = WIDTH / 2;
+        let playerY = HEIGHT / 2;
+        let playerLives = 5;
+
+        // Set up the enemies
+        let enemies = [];
+        let enemyRegenerationInterval;
+        function regenerateEnemies() {
+            if (enemies.length < 3) {
+                let enemyX = WIDTH - ENEMY_SIZE;
+                let enemyY = 0;
+                let enemyElement = document.createElement('div');
+                enemyElement.classList.add('enemy');
+                enemyElement.style.top = `${enemyY}px`;
+                enemyElement.style.left = `${enemyX}px`;
+                gameContainer.appendChild(enemyElement);
+                enemies.push({ x: enemyX, y: enemyY, element: enemyElement, speed: ENEMY_SPEED, regeneration: true, regenerationCount: 0, collision: false, collisionCount: 0 });
+            }
+        }
+        regenerateEnemies();
+        enemyRegenerationInterval = setInterval(regenerateEnemies, 5000);
+
+        // Set up the shot
+        let shotX = 0;
+        let shotY = 0;
+        let shotActive = false;
+        let shotDirection = '';
+        let shotTimeout;
+
+        // Set up the score
+        let score = 0;
+        let scoreInterval = setInterval(() => {
+            score++;
+            scoreElement.innerText = `Score: ${score}`;
+            if (score % 300 === 0) {
+                for (let i = 0; i < enemies.length; i++) {
+                    enemies[i].speed += 0.01;
+                }
+            }
+        }, 1000);
+
+        // Set up the star field
+        let stars = [];
+        for (let i = 0; i < 100; i++) {
+            let starX = Math.random() * WIDTH;
+            let starY = Math.random() * HEIGHT;
+            let starColor = Math.random() < 0.1 ? 'red' : 'white';
+            let star = document.createElement('div');
+            star.classList.add('star');
+            if (starColor === 'red') {
+                star.classList.add('red-star');
+            }
+            star.style.top = `${starY}px`;
+            star.style.left = `${starX}px`;
+            gameContainer.appendChild(star);
+            stars.push({ x: starX, y: starY, element: star });
+        }
+
+        // Set up the game loop
+        function gameLoop() {
+            // Handle player movement
+            if (keysDown['ArrowUp'] || gamepadButtons[12]) {
+                playerY -= PLAYER_SPEED;
+                if (playerY < 0) {
+                    playerY = 0;
+                }
+            }
+            if (keysDown['ArrowDown'] || gamepadButtons[13]) {
+                playerY += PLAYER_SPEED;
+                if (playerY > HEIGHT - PLAYER_SIZE) {
+                    playerY = HEIGHT - PLAYER_SIZE;
+                }
+            }
+            if (keysDown['ArrowLeft'] || gamepadButtons[14]) {
+                playerX -= PLAYER_SPEED;
+                if (playerX < 0) {
+                    playerX = 0;
+                }
+            }
+            if (keysDown['ArrowRight'] || gamepadButtons[15]) {
+                playerX += PLAYER_SPEED;
+                if (playerX > WIDTH - PLAYER_SIZE) {
+                    playerX = WIDTH - PLAYER_SIZE;
+                }
+            }
+
+            // Handle shot movement
+            if (shotActive) {
+                switch (shotDirection) {
+                    case 'up':
+                        shotY -= SHOT_SPEED;
+                        break;
+                    case 'down':
+                        shotY += SHOT_SPEED;
+                        break;
+                    case 'left':
+                        shotX -= SHOT_SPEED;
+                        break;
+                    case 'right':
+                        shotX += SHOT_SPEED;
+                        break;
+                }
+                if (shotX < 0 || shotX > WIDTH || shotY < 0 || shotY > HEIGHT) {
+                    shotActive = false;
+                }
+            }
+
+            // Handle enemy movement
+            for (let i = 0; i < enemies.length; i++) {
+                let enemy = enemies[i];
+                if (enemy.regeneration) {
+                    if (enemy.regenerationCount < 20) {
+                        enemy.element.style.opacity = enemy.regenerationCount % 2;
+                        enemy.regenerationCount++;
+                    } else {
+                        enemy.regeneration = false;
+                    }
+                } else {
+                    if (enemy.x < playerX) {
+                        enemy.x += enemy.speed;
+                    } else if (enemy.x > playerX) {
+                        enemy.x -= enemy.speed;
+                    }
+                    if (enemy.y < playerY) {
+                        enemy.y += enemy.speed;
+                    } else if (enemy.y > playerY) {
+                        enemy.y -= enemy.speed;
+                    }
+                    enemy.element.style.top = `${enemy.y}px`;
+                    enemy.element.style.left = `${enemy.x}px`;
+                }
+            }
+
+            // Move the stars
+            setTimeout(() => {
+                for (let i = 0; i < stars.length; i++) {
+                    let star = stars[i];
+                    star.y += 2;
+                    if (star.y > HEIGHT) {
+                        star.y = 0;
+                    }
+                    star.element.style.top = `${star.y}px`;
+                }
+            }, 500);
+
+            // Draw everything
+            playerElement.style.top = `${playerY}px`;
+            playerElement.style.left = `${playerX}px`;
+            if (shotActive) {
+                shotElement.style.top = `${shotY}px`;
+                shotElement.style.left = `${shotX}px`;
+            }
+
+            // Handle collisions
+            for (let i = 0; i < enemies.length; i++) {
+                let enemy = enemies[i];
+                if (shotActive && shotX > enemy.x && shotX < enemy.x + ENEMY_SIZE && shotY > enemy.y && shotY < enemy.y + ENEMY_SIZE) {
+                    score += 100;
+                    shotActive = false;
+                    enemy.element.remove();
+                    enemies.splice(i, 1);
+                    breakEnemy(enemy.x, enemy.y);
+                }
+                if (playerX < enemy.x + ENEMY_SIZE && playerX + PLAYER_SIZE > enemy.x && playerY < enemy.y + ENEMY_SIZE && playerY + PLAYER_SIZE > enemy.y) {
+                    if (!enemy.collision) {
+                        enemy.collision = true;
+                        enemy.collisionCount = 0;
+                    }
+                    enemy.collisionCount++;
+                    if (enemy.collisionCount > 180) {
+                        playerLives--;
+                        enemy.collision = false;
+                        enemy.collisionCount = 0;
+                    }
+                } else {
+                    enemy.collision = false;
+                    enemy.collisionCount = 0;
+                }
+            }
+
+            // Request the next frame
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Set up the key handling
+        let keysDown = {};
+        document.addEventListener('keydown', (event) => {
+            keysDown[event.key] = true;
+            if (event.key === '4') {
+                // Shoot left
+                if (!shotActive) {
+                    shotX = playerX;
+                    shotY = playerY;
+                    shotDirection = 'left';
+                    shotActive = true;
+                    createShot();
+                    shotTimeout = setTimeout(() => {
+                        shotActive = false;
+                        shotElement.remove();
+                    }, 5000);
+                }
+            }
+            if (event.key === '6') {
+                // Shoot right
+                if (!shotActive) {
+                    shotX = playerX;
+                    shotY = playerY;
+                    shotDirection = 'right';
+                    shotActive = true;
+                    createShot();
+                    shotTimeout = setTimeout(() => {
+                        shotActive = false;
+                        shotElement.remove();
+                    }, 5000);
+                }
+            }
+            if (event.key === '8') {
+                // Shoot up
+                if (!shotActive) {
+                    shotX = playerX;
+                    shotY = playerY;
+                    shotDirection = 'up';
+                    shotActive = true;
+                    createShot();
+                    shotTimeout = setTimeout(() => {
+                        shotActive = false;
+                        shotElement.remove();
+                    }, 5000);
+                }
+            }
+            if (event.key === '2') {
+                // Shoot down
+                if (!shotActive) {
+                    shotX = playerX;
+                    shotY = playerY;
+                    shotDirection = 'down';
+                    shotActive = true;
+                    createShot();
+                    shotTimeout = setTimeout(() => {
+                        shotActive = false;
+                        shotElement.remove();
+                    }, 5000);
+                }
+            }
+        });
+        document.addEventListener('keyup', (event) => {
+            delete keysDown[event.key];
+        });
+
+        // Set up the gamepad handling
+        let gamepadButtons = {};
+        window.addEventListener('gamepadconnected', (event) => {
+            console.log('Gamepad connected!');
+        });
+        window.addEventListener('gamepaddisconnected', (event) => {
+            console.log('Gamepad disconnected!');
+        });
+        function gamepadUpdate() {
+            const gamepads = navigator.getGamepads();
+            if (gamepads[0]) {
+                gamepadButtons = gamepads[0].buttons;
+                if (gamepadButtons[12]) {
+                    // Shoot left
+                    if (!shotActive) {
+                        shotX = playerX;
+                        shotY = playerY;
+                        shotDirection = 'left';
+                        shotActive = true;
+                        createShot();
+                        shotTimeout = setTimeout(() => {
+                            shotActive = false;
+                            shotElement.remove();
+                        }, 5000);
+                    }
+                }
+                if (gamepadButtons[13]) {
+                    // Shoot right
+                    if (!shotActive) {
+                        shotX = playerX;
+                        shotY = playerY;
+                        shotDirection = 'right';
+                        shotActive = true;
+                        createShot();
+                        shotTimeout = setTimeout(() => {
+                            shotActive = false;
+                            shotElement.remove();
+                        }, 5000);
+                    }
+                }
+                if (gamepadButtons[14]) {
+                    // Shoot up
+                    if (!shotActive) {
+                        shotX = playerX;
+                        shotY = playerY;
+                        shotDirection = 'up';
+                        shotActive = true;
+                        createShot();
+                        shotTimeout = setTimeout(() => {
+                            shotActive = false;
+                            shotElement.remove();
+                        }, 5000);
+                    }
+                }
+                if (gamepadButtons[15]) {
+                    // Shoot down
+                    if (!shotActive) {
+                        shotX = playerX;
+                        shotY = playerY;
+                        shotDirection = 'down';
+                        shotActive = true;
+                        createShot();
+                        shotTimeout = setTimeout(() => {
+                            shotActive = false;
+                            shotElement.remove();
+                        }, 5000);
+                    }
+                }
+            }
+        }
+        setInterval(gamepadUpdate, 100);
+
+        // Function to create a new shot
+        function createShot() {
+            shotElement = document.createElement('div');
+            shotElement.id = 'shot';
+            shotElement.style.top = `${shotY}px`;
+            shotElement.style.left = `${shotX}px`;
+            gameContainer.appendChild(shotElement);
+        }
+
+        // Function to break an enemy into pieces
+        function breakEnemy(x, y) {
+            let pieces = [];
+            for (let i = 0; i < 8; i++) {
+                let piece = document.createElement('div');
+                piece.classList.add('enemy');
+                piece.style.top = `${y}px`;
+                piece.style.left = `${x}px`;
+                piece.style.width = `${ENEMY_SIZE / 2}px`;
+                piece.style.height = `${ENEMY_SIZE / 2}px`;
+                gameContainer.appendChild(piece);
+                pieces.push(piece);
+            }
+            setTimeout(() => {
+                for (let i = 0; i < pieces.length; i++) {
+                    pieces[i].remove();
+                }
+                pieces = [];
+                for (let i = 0; i < 16; i++) {
+                    let piece = document.createElement('div');
+                    piece.classList.add('enemy');
+                    piece.style.top = `${y}px`;
+                    piece.style.left = `${x}px`;
+                    piece.style.width = `${ENEMY_SIZE / 4}px`;
+                    piece.style.height = `${ENEMY_SIZE / 4}px`;
+                    gameContainer.appendChild(piece);
+                    pieces.push(piece);
+                }
+                setTimeout(() => {
+                    for (let i = 0; i < pieces.length; i++) {
+                        pieces[i].remove();
+                    }
+                }, 200);
+            }, 200);
+        }
+
+        // Start the game loop
+        gameLoop();
+
+        // Check for game over
+        setInterval(() => {
+            if (playerLives <= 0) {
+                clearInterval(scoreInterval);
+                clearInterval(enemyRegenerationInterval);
+                gameContainer.innerHTML = '';
+                let gameOverText = document.createElement('div');
+                gameOverText.style.color = 'white';
+                gameOverText.style.fontSize = '32px';
+                gameOverText.style.position = 'absolute';
+                gameOverText.style.top = '50%';
+                gameOverText.style.left = '50%';
+                gameOverText.style.transform = 'translate(-50%, -50%)';
+                gameOverText.innerText = 'Game Over! Play Again (y/n)?';
+                gameContainer.appendChild(gameOverText);
+                document.addEventListener('keydown', (event) => {
+                    if (event.key.toLowerCase() === 'y') {
+                        location.reload();
+                    }
+                });
+            }
+        }, 1000);
+    </script>
+</body>
+
+</html>
